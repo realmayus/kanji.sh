@@ -3,6 +3,23 @@ import Document, {Head, Html, Main, NextScript} from 'next/document';
 import {ServerStyleSheets} from '@material-ui/core/styles';
 import theme from '../src/theme';
 
+// You can find a benchmark of the available CSS minifiers under
+// https://github.com/GoalSmashers/css-minification-benchmark
+// We have found that clean-css is faster than cssnano but the output is larger.
+// Waiting for https://github.com/cssinjs/jss/issues/279
+// 4% slower but 12% smaller output than doing it in a single step.
+//
+// It's using .browserslistrc
+let prefixer: any;
+let cleanCSS: any;
+if (process.env.NODE_ENV === 'production') {
+    const postcss = require('postcss');
+    const autoprefixer = require('autoprefixer');
+    const CleanCSS = require('clean-css');
+    prefixer = postcss([autoprefixer]);
+    cleanCSS = new CleanCSS();
+}
+
 export default class MyDocument extends Document {
     render() {
         // ↓ https://err.sh/next.js/no-document-title
@@ -15,6 +32,7 @@ export default class MyDocument extends Document {
                     <link rel="apple-touch-icon" href={"/logo192.png"}/>
                     <link rel="manifest" href={"/manifest.json"}/>
                     <meta name="theme-color" content={theme.palette.primary.dark}/>
+                    <link href="https://fonts.gstatic.com" rel="preconnect" crossOrigin="anonymous"/>
                     <link
                         rel="stylesheet"
                         href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,700;0,900;1,100&display=swap"
@@ -88,10 +106,24 @@ MyDocument.getInitialProps = async (ctx) => {
 
     const initialProps = await Document.getInitialProps(ctx);
 
+    let css = sheets.toString();
+    // It might be undefined, e.g. after an error.
+    if (css && process.env.NODE_ENV === 'production') {
+        const result1 = await prefixer.process(css, {from: undefined});
+        css = result1.css;
+        css = cleanCSS.minify(css).styles;
+    }
+
     return {
         ...initialProps,
-        // Styles fragment is rendered after the app and page rendering finish.
-        styles: [...React.Children.toArray(initialProps.styles), sheets.getStyleElement()],
+        styles: [
+            ...React.Children.toArray(initialProps.styles),
+            <style
+                id="jss-server-side"
+                key="jss-server-side"
+                dangerouslySetInnerHTML={{__html: css}}
+            />,
+        ],
     };
 }
 ;
